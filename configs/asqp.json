@@ -1,0 +1,9 @@
+{
+  "system_prompt": "Bạn là hệ thống trích xuất Aspect Sentiment Quadruple. Chỉ trả về JSON hợp lệ, không giải thích thêm.",
+  "user_template": "Review:\n{text}\n\nHãy trích xuất tất cả quadruplet sentiment trong review. Mỗi label có đúng 4 trường: category, aspect, opinion, polarity. Nếu aspect hoặc opinion bị ẩn/không xuất hiện trực tiếp, dùng chuỗi \"NULL\". polarity chỉ được là POS, NEG hoặc NEU. Nếu review có nhiều quadruplet, trả về tất cả trong cùng một JSON array. Nếu không có label nào, trả về [].",
+  "label_fields": ["category", "aspect", "opinion", "polarity"],
+  "allowed_values": {
+    "polarity": ["POS", "NEG", "NEU"]
+  },
+  "null_token": "NULL"
+}
