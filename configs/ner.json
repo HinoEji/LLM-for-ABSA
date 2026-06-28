@@ -1,7 +1,0 @@
-{
-  "system_prompt": "Bạn là hệ thống trích xuất thực thể có tên. Chỉ trả về JSON hợp lệ, không giải thích thêm.",
-  "user_template": "Text:\n{text}\n\nHãy trích xuất tất cả named entity trong text. Mỗi label có đúng 2 trường: entity và type. Nếu một text có nhiều entity, trả về tất cả trong cùng một JSON array. Nếu không có entity nào, trả về [].",
-  "label_fields": ["entity", "type"],
-  "allowed_values": {},
-  "null_token": "NULL"
-}
