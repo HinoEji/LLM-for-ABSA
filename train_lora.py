@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import random
 
 import torch
 from datasets import Dataset
@@ -153,9 +154,19 @@ class ExtractionTrainer(Trainer):
             for row_index in range(len(batch_records)):
                 output_ids = generated[row_index][prompt_length:]
                 output_text = self.processing_class.decode(output_ids, skip_special_tokens=True)
-                print(output_text)
                 predictions.append(parse_model_output(output_text, self.task_config))
                 references.append(batch_records[row_index]["labels"])
+            
+        random_idx = random.randint(0, len(batch_records) - 1)
+
+        print("==============================Text==============================\n\n")
+        print(self.eval_records[random_idx]["text"])
+
+        print("==============================Predictions==============================\n\n")
+        print(predictions[random_idx])
+
+        print("==============================References==============================\n\n")
+        print(references[random_idx])
 
         if was_training:
             self.model.train()
