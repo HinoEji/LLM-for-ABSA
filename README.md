@@ -101,19 +101,19 @@ Nếu field nào chỉ được nhận một số giá trị cố định, khai 
 
 Bạn có thể train trực tiếp từ file raw `.json` hoặc `.jsonl`. Tuy vậy, nên convert trước để kiểm tra prompt và target:
 
-```powershell
-python prepare_data.py `
-  --input data/train.json `
-  --output data/train.chat.jsonl `
+```bash
+python prepare_data.py 
+  --input data/train.json 
+  --output data/train.chat.jsonl 
   --task_config configs/ner.json
 ```
 
 Với ASQP:
 
-```powershell
-python prepare_data.py `
-  --input data/asqp_train.json `
-  --output data/asqp_train.chat.jsonl `
+```bash
+python prepare_data.py
+  --input data/asqp_train.json 
+  --output data/asqp_train.chat.jsonl 
   --task_config configs/asqp.json
 ```
 
@@ -125,55 +125,87 @@ Output `.chat.jsonl` sẽ có dạng:
 
 ## Fine-tune LoRA
 
-NER:
+SACE:
 
-```powershell
-python train_lora.py `
-  --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct `
-  --train_file data/ner_train.chat.jsonl `
-  --validation_file data/ner_dev.chat.jsonl `
-  --task_config configs/ner.json `
-  --output_dir outputs/qwen-ner-lora `
-  --eval_steps 200 `
-  --save_steps 200
+```bash
+python train_lora.py \
+    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
+    --train_file data/train.jsonl \
+    --validation_file data/dev.jsonl \
+    --task_config configs/sace.json \
+    --output_dir outputs/qwen-extraction-lora \
+    --max_seq_length 1024 \
+    --num_train_epochs 3 \
+    --learning_rate 2e-4 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 1 \
+    --eval_steps 1 \
+    --eval_strategy epoch \
+    --save_strategy epoch \
+    --steps 1 \
+    --save_steps 1 \
+    --logging_strategy epoch \
+    --logging_steps 1 \
+    --warmup_ratio 0.0 \
+    --lora_r 16 \
+    --lora_alpha 32 \
+    --lora_dropout 0.05 \
+    --generation_max_new_tokens 256 \
+    --generation_batch_size 4 \
+    --use_4bit \
+    --gradient_checkpointing \
+    --enable_thinking
 ```
 
 ASQP:
 
-```powershell
-python train_lora.py `
-  --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct `
-  --train_file data/asqp_train.chat.jsonl `
-  --validation_file data/asqp_dev.chat.jsonl `
-  --task_config configs/asqp.json `
-  --output_dir outputs/qwen-asqp-lora `
-  --eval_steps 200 `
-  --save_steps 200
+```bash
+python train_lora.py \
+    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
+    --train_file data/train.jsonl \
+    --validation_file data/dev.jsonl \
+    --task_config configs/asqp.json \
+    --output_dir outputs/qwen-extraction-lora \
+    --max_seq_length 1024 \
+    --num_train_epochs 3 \
+    --learning_rate 2e-4 \
+    --per_device_train_batch_size 2 \
+    --per_device_eval_batch_size 2 \
+    --gradient_accumulation_steps 1 \
+    --eval_steps 1 \
+    --eval_strategy epoch \
+    --save_strategy epoch \
+    --steps 1 \
+    --save_steps 1 \
+    --logging_strategy epoch \
+    --logging_steps 1 \
+    --warmup_ratio 0.0 \
+    --lora_r 16 \
+    --lora_alpha 32 \
+    --lora_dropout 0.05 \
+    --generation_max_new_tokens 256 \
+    --generation_batch_size 4 \
+    --gradient_checkpointing \
+    --enable_thinking
 ```
 
-Nếu muốn dùng QLoRA 4-bit:
-
-```powershell
-python train_lora.py `
-  --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct `
-  --train_file data/ner_train.chat.jsonl `
-  --validation_file data/ner_dev.chat.jsonl `
-  --task_config configs/ner.json `
-  --output_dir outputs/qwen-ner-lora `
-  --use_4bit
-```
+Nếu muốn dùng QLoRA 4-bit: thì thêm --use_4bit
 
 `save_steps` phải bằng hoặc là bội số của `eval_steps`, vì script chọn best checkpoint theo `eval_f1`.
 
 ## Evaluate
 
-```powershell
-python evaluate.py `
-  --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct `
-  --adapter_path outputs/qwen-ner-lora `
-  --validation_file data/ner_dev.chat.jsonl `
-  --task_config configs/ner.json `
-  --output_predictions outputs/ner_dev_predictions.jsonl
+```bash
+python predict.py \
+    --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
+    --adapter_path outputs/qwen-extraction-lora/checkpoint-best \
+    --validation_file data/test.jsonl \
+    --task_config configs/asqp.json \
+    --output_predictions predictions.jsonl \
+    --batch_size 4 \
+    --max_new_tokens 256 \
+    --enable_thinking
 ```
 
 Metric là micro precision/recall/F1 theo exact match trên từng object trong `labels`.

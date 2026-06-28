@@ -132,27 +132,28 @@ class ExtractionTrainer(Trainer):
         for start in range(0, len(self.eval_records), self.generation_batch_size):
             batch_records = self.eval_records[start : start + self.generation_batch_size]
             prompts = [
-                self.tokenizer.apply_chat_template(
+                self.processing_class.apply_chat_template(
                     build_messages(record["text"], None, self.task_config),
                     tokenize=False,
                     add_generation_prompt=True,
                 )
                 for record in batch_records
             ]
-            encoded = self.tokenizer(prompts, return_tensors="pt", padding=True).to(self.model.device)
+            encoded = self.processing_class(prompts, return_tensors="pt", padding=True).to(self.model.device)
             generated = self.model.generate(
                 **encoded,
                 max_new_tokens=self.generation_max_new_tokens,
                 do_sample=False,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
+                pad_token_id=self.processing_class.pad_token_id,
+                eos_token_id=self.processing_class.eos_token_id,
             )
 
             # Chỉ decode phần token mới để tránh parse lại prompt.
             prompt_length = encoded["input_ids"].shape[1]
             for row_index in range(len(batch_records)):
                 output_ids = generated[row_index][prompt_length:]
-                output_text = self.tokenizer.decode(output_ids, skip_special_tokens=True)
+                output_text = self.processing_class.decode(output_ids, skip_special_tokens=True)
+                print(output_text)
                 predictions.append(parse_model_output(output_text, self.task_config))
                 references.append(batch_records[row_index]["labels"])
 
@@ -178,11 +179,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning_rate", type=float, default=2e-4)
     parser.add_argument("--per_device_train_batch_size", type=positive_int, default=2)
     parser.add_argument("--per_device_eval_batch_size", type=positive_int, default=2)
-    parser.add_argument("--gradient_accumulation_steps", type=positive_int, default=8)
-    parser.add_argument("--eval_steps", type=positive_int, default=200)
-    parser.add_argument("--save_steps", type=positive_int, default=200)
-    parser.add_argument("--logging_steps", type=positive_int, default=20)
-    parser.add_argument("--warmup_ratio", type=float, default=0.03)
+    parser.add_argument("--gradient_accumulation_steps", type=positive_int, default=1)
+    parser.add_argument("--eval_steps", type=positive_int, default=1)
+    parser.add_argument("--eval_strategy", type=str, default="epoch"),
+    parser.add_argument("--save_strategy", type=str, default="epoch"),
+    parser.add_argument("--steps", type=positive_int, default=1)
+    parser.add_argument("--save_steps", type=positive_int, default=1)
+    parser.add_argument("--logging_strategy", type=str, default="epoch")
+    parser.add_argument("--logging_steps", type=positive_int, default=1)
+    parser.add_argument("--warmup_ratio", type=float, default=0.0)
     parser.add_argument("--lora_r", type=positive_int, default=16)
     parser.add_argument("--lora_alpha", type=positive_int, default=32)
     parser.add_argument("--lora_dropout", type=float, default=0.05)
@@ -190,8 +195,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generation_batch_size", type=positive_int, default=4)
     parser.add_argument("--use_4bit", action="store_true", help="Bật QLoRA 4-bit nếu môi trường hỗ trợ bitsandbytes.")
     parser.add_argument("--gradient_checkpointing", action="store_true")
+    parser.add_argument("--enable_thinking", action="store_true", help="Dùng cho một số mô hình có hỗ trợ chế độ thinking")
     return parser.parse_args()
 
+args = parse_args()
 
 def load_extraction_records(path: str, task_config: TaskConfig) -> list[dict[str, Any]]:
     """Đọc JSONL và chuẩn hóa về text/labels/messages theo task_config.
@@ -218,8 +225,20 @@ def tokenize_record(record: dict[str, Any], tokenizer: Any, max_seq_length: int)
         Dict input_ids/attention_mask/labels cho Trainer.
     """
     prompt_messages = record["messages"][:-1]
-    full_text = tokenizer.apply_chat_template(record["messages"], tokenize=False, add_generation_prompt=False)
-    prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+    support_thinking = True
+    try:
+        dump_msg = [
+            {"role": "user", "content": "Dump messages for checking thinking mode."}
+        ]
+    except Exception as e:
+        support_thinking = False
+
+    if support_thinking:
+        full_text = tokenizer.apply_chat_template(record["messages"], tokenize=False, add_generation_prompt=False, enable_thinking=args.enable_thinking)
+        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True, enable_thinking=args.enable_thinking)
+    else:
+        full_text = tokenizer.apply_chat_template(record["messages"], tokenize=False, add_generation_prompt=False)
+        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
 
     full_ids = tokenizer(full_text, add_special_tokens=False)["input_ids"]
     prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
@@ -305,7 +324,7 @@ def save_training_config(args: argparse.Namespace, task_config: TaskConfig) -> N
 
 def main() -> None:
     """Entry point finetune LoRA."""
-    args = parse_args()
+    # args = parse_args()
     if args.save_steps % args.eval_steps != 0:
         raise ValueError("--save_steps phải bằng hoặc là bội số của --eval_steps để chọn best model theo eval_f1.")
 
@@ -328,10 +347,11 @@ def main() -> None:
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
-        eval_strategy="steps",
+        eval_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
-        save_strategy="steps",
+        save_strategy=args.save_strategy,
         save_steps=args.save_steps,
+        logging_strategy=args.logging_strategy,
         logging_steps=args.logging_steps,
         warmup_ratio=args.warmup_ratio,
         lr_scheduler_type="cosine",
@@ -341,7 +361,7 @@ def main() -> None:
         load_best_model_at_end=True,
         metric_for_best_model="eval_f1",
         greater_is_better=True,
-        save_total_limit=3,
+        save_total_limit=2,
         report_to="none",
         remove_unused_columns=False,
     )
@@ -351,7 +371,7 @@ def main() -> None:
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=DataCollatorForCausalLM(tokenizer),
         eval_records=eval_records,
         task_config=task_config,

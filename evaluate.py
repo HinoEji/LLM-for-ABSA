@@ -38,8 +38,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output_predictions", default=None, help="File JSONL lưu prediction chi tiết.")
     parser.add_argument("--batch_size", type=positive_int, default=4)
     parser.add_argument("--max_new_tokens", type=positive_int, default=256)
+    parser.add_argument("--enable_thinking", action="store_true", help="Dùng cho một số mô hình có hỗ trợ chế độ thinking")
     return parser.parse_args()
 
+args = parse_args()
 
 def load_model(args: argparse.Namespace) -> tuple[Any, Any]:
     """Load base model, tokenizer và adapter LoRA nếu có.
@@ -104,16 +106,43 @@ def generate_predictions(
         Danh sách record prediction chi tiết.
     """
     outputs: list[dict[str, Any]] = []
-    for start in range(0, len(records), batch_size):
-        batch_records = records[start : start + batch_size]
-        prompts = [
-            tokenizer.apply_chat_template(
-                build_messages(record["text"], None, task_config),
+
+    support_thinking = True
+    try:
+        dump_msg = [
+            {"role": "system", "content": "Bạn là một trợ lý AI giúp trích xuất thông tin từ văn bản."},
+        ]
+        tokenizer.apply_chat_template(
+                dump_msg,
                 tokenize=False,
                 add_generation_prompt=True,
+                enable_thinking=True
             )
-            for record in batch_records
-        ]
+    except Exception as e:
+        support_thinking = False
+
+    for start in range(0, len(records), batch_size):
+        batch_records = records[start : start + batch_size]
+        
+        if support_thinking:
+            prompts = [
+                tokenizer.apply_chat_template(
+                    build_messages(record["text"], None, task_config),
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=args.enable_thinking
+                )
+                for record in batch_records
+            ]
+        else:
+            prompts = [
+                tokenizer.apply_chat_template(
+                    build_messages(record["text"], None, task_config),
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                for record in batch_records
+            ]
         encoded = tokenizer(prompts, return_tensors="pt", padding=True).to(model.device)
         generated = model.generate(
             **encoded,
@@ -141,7 +170,6 @@ def generate_predictions(
 
 def main() -> None:
     """Entry point evaluate model."""
-    args = parse_args()
     task_config = load_task_config(args.task_config)
     records = load_extraction_records(args.validation_file, task_config)
     model, tokenizer = load_model(args)
