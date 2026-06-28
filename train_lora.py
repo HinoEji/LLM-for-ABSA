@@ -34,6 +34,45 @@ from llm_extraction.utils import (
 
 IGNORE_INDEX = -100
 
+def parse_args() -> argparse.Namespace:
+    """Parse tham số command line cho finetune LoRA.
+
+    Returns:
+        Namespace cấu hình huấn luyện.
+    """
+    parser = argparse.ArgumentParser(description="Finetune LoRA Qwen Instruct cho task extraction.")
+    parser.add_argument("--model_name_or_path", default="Qwen/Qwen2.5-1.5B-Instruct")
+    parser.add_argument("--train_file", required=True, help="Train JSONL có text/labels hoặc messages format.")
+    parser.add_argument("--validation_file", required=True, help="Dev JSONL có text/labels hoặc messages format.")
+    parser.add_argument("--task_config", default="configs/asqp.json", help="File JSON config chứa prompt và schema label.")
+    parser.add_argument("--output_dir", default="outputs/qwen-extraction-lora")
+    parser.add_argument("--max_seq_length", type=positive_int, default=1024)
+    parser.add_argument("--num_train_epochs", type=float, default=3.0)
+    parser.add_argument("--learning_rate", type=float, default=2e-4)
+    parser.add_argument("--per_device_train_batch_size", type=positive_int, default=2)
+    parser.add_argument("--per_device_eval_batch_size", type=positive_int, default=2)
+    parser.add_argument("--gradient_accumulation_steps", type=positive_int, default=1)
+    parser.add_argument("--eval_steps", type=positive_int, default=1)
+    parser.add_argument("--eval_strategy", type=str, default="epoch"),
+    parser.add_argument("--save_strategy", type=str, default="epoch"),
+    parser.add_argument("--steps", type=positive_int, default=1)
+    parser.add_argument("--save_steps", type=positive_int, default=1)
+    parser.add_argument("--logging_strategy", type=str, default="epoch")
+    parser.add_argument("--logging_steps", type=positive_int, default=1)
+    parser.add_argument("--warmup_ratio", type=float, default=0.0)
+    parser.add_argument("--lora_r", type=positive_int, default=16)
+    parser.add_argument("--lora_alpha", type=positive_int, default=32)
+    parser.add_argument("--lora_dropout", type=float, default=0.05)
+    parser.add_argument("--generation_max_new_tokens", type=positive_int, default=256)
+    parser.add_argument("--generation_batch_size", type=positive_int, default=4)
+    parser.add_argument("--use_4bit", action="store_true", help="Bật QLoRA 4-bit nếu môi trường hỗ trợ bitsandbytes.")
+    parser.add_argument("--gradient_checkpointing", action="store_true")
+    parser.add_argument("--enable_thinking", action="store_true", help="Dùng cho một số mô hình có hỗ trợ chế độ thinking")
+    return parser.parse_args()
+
+args = parse_args()
+
+
 
 @dataclass
 class DataCollatorForCausalLM:
@@ -137,6 +176,7 @@ class ExtractionTrainer(Trainer):
                     build_messages(record["text"], None, self.task_config),
                     tokenize=False,
                     add_generation_prompt=True,
+                    enable_thinking=args.enable_thinking
                 )
                 for record in batch_records
             ]
@@ -173,43 +213,6 @@ class ExtractionTrainer(Trainer):
         return compute_micro_f1(predictions, references, self.task_config)
 
 
-def parse_args() -> argparse.Namespace:
-    """Parse tham số command line cho finetune LoRA.
-
-    Returns:
-        Namespace cấu hình huấn luyện.
-    """
-    parser = argparse.ArgumentParser(description="Finetune LoRA Qwen Instruct cho task extraction.")
-    parser.add_argument("--model_name_or_path", default="Qwen/Qwen2.5-1.5B-Instruct")
-    parser.add_argument("--train_file", required=True, help="Train JSONL có text/labels hoặc messages format.")
-    parser.add_argument("--validation_file", required=True, help="Dev JSONL có text/labels hoặc messages format.")
-    parser.add_argument("--task_config", default="configs/asqp.json", help="File JSON config chứa prompt và schema label.")
-    parser.add_argument("--output_dir", default="outputs/qwen-extraction-lora")
-    parser.add_argument("--max_seq_length", type=positive_int, default=1024)
-    parser.add_argument("--num_train_epochs", type=float, default=3.0)
-    parser.add_argument("--learning_rate", type=float, default=2e-4)
-    parser.add_argument("--per_device_train_batch_size", type=positive_int, default=2)
-    parser.add_argument("--per_device_eval_batch_size", type=positive_int, default=2)
-    parser.add_argument("--gradient_accumulation_steps", type=positive_int, default=1)
-    parser.add_argument("--eval_steps", type=positive_int, default=1)
-    parser.add_argument("--eval_strategy", type=str, default="epoch"),
-    parser.add_argument("--save_strategy", type=str, default="epoch"),
-    parser.add_argument("--steps", type=positive_int, default=1)
-    parser.add_argument("--save_steps", type=positive_int, default=1)
-    parser.add_argument("--logging_strategy", type=str, default="epoch")
-    parser.add_argument("--logging_steps", type=positive_int, default=1)
-    parser.add_argument("--warmup_ratio", type=float, default=0.0)
-    parser.add_argument("--lora_r", type=positive_int, default=16)
-    parser.add_argument("--lora_alpha", type=positive_int, default=32)
-    parser.add_argument("--lora_dropout", type=float, default=0.05)
-    parser.add_argument("--generation_max_new_tokens", type=positive_int, default=256)
-    parser.add_argument("--generation_batch_size", type=positive_int, default=4)
-    parser.add_argument("--use_4bit", action="store_true", help="Bật QLoRA 4-bit nếu môi trường hỗ trợ bitsandbytes.")
-    parser.add_argument("--gradient_checkpointing", action="store_true")
-    parser.add_argument("--enable_thinking", action="store_true", help="Dùng cho một số mô hình có hỗ trợ chế độ thinking")
-    return parser.parse_args()
-
-args = parse_args()
 
 def load_extraction_records(path: str, task_config: TaskConfig) -> list[dict[str, Any]]:
     """Đọc JSONL và chuẩn hóa về text/labels/messages theo task_config.
@@ -236,20 +239,9 @@ def tokenize_record(record: dict[str, Any], tokenizer: Any, max_seq_length: int)
         Dict input_ids/attention_mask/labels cho Trainer.
     """
     prompt_messages = record["messages"][:-1]
-    support_thinking = True
-    try:
-        dump_msg = [
-            {"role": "user", "content": "Dump messages for checking thinking mode."}
-        ]
-    except Exception as e:
-        support_thinking = False
 
-    if support_thinking:
-        full_text = tokenizer.apply_chat_template(record["messages"], tokenize=False, add_generation_prompt=False, enable_thinking=args.enable_thinking)
-        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True, enable_thinking=args.enable_thinking)
-    else:
-        full_text = tokenizer.apply_chat_template(record["messages"], tokenize=False, add_generation_prompt=False)
-        prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True)
+    full_text = tokenizer.apply_chat_template(record["messages"], tokenize=False, add_generation_prompt=False, enable_thinking=args.enable_thinking)
+    prompt_text = tokenizer.apply_chat_template(prompt_messages, tokenize=False, add_generation_prompt=True, enable_thinking=args.enable_thinking)
 
     full_ids = tokenizer(full_text, add_special_tokens=False)["input_ids"]
     prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
