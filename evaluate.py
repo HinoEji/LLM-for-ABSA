@@ -107,42 +107,19 @@ def generate_predictions(
     """
     outputs: list[dict[str, Any]] = []
 
-    support_thinking = True
-    try:
-        dump_msg = [
-            {"role": "system", "content": "Bạn là một trợ lý AI giúp trích xuất thông tin từ văn bản."},
-        ]
-        tokenizer.apply_chat_template(
-                dump_msg,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=True
-            )
-    except Exception as e:
-        support_thinking = False
 
     for start in range(0, len(records), batch_size):
         batch_records = records[start : start + batch_size]
         
-        if support_thinking:
-            prompts = [
-                tokenizer.apply_chat_template(
-                    build_messages(record["text"], None, task_config),
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=args.enable_thinking
-                )
-                for record in batch_records
-            ]
-        else:
-            prompts = [
-                tokenizer.apply_chat_template(
-                    build_messages(record["text"], None, task_config),
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                for record in batch_records
-            ]
+        prompts = [
+            tokenizer.apply_chat_template(
+                build_messages(record["text"], None, task_config),
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=args.enable_thinking
+            )
+            for record in batch_records
+        ]
         encoded = tokenizer(prompts, return_tensors="pt", padding=True).to(model.device)
         generated = model.generate(
             **encoded,
