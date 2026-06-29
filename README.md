@@ -197,7 +197,7 @@ Nếu muốn dùng QLoRA 4-bit: thì thêm --use_4bit
 ## Evaluate
 
 ```bash
-python predict.py \
+python evaluate.py \
     --model_name_or_path Qwen/Qwen2.5-1.5B-Instruct \
     --adapter_path outputs/qwen-extraction-lora/checkpoint-best \
     --validation_file data/test.jsonl \
